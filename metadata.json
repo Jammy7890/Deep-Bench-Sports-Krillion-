@@ -1,0 +1,8 @@
+{
+  "name": "Deep Bench",
+  "description": "Endless AI-powered sports trivia where rarer valid answers climb from Rookie to Mythic, smart autocorrect normalizes typos and regional sports terms, and three strikes end the run.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
