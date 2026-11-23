@@ -2,7 +2,7 @@ const Type = { OBJECT: 'OBJECT', STRING: 'STRING', BOOLEAN: 'BOOLEAN', ARRAY: 'A
 const ThinkingLevel = { MINIMAL: 'minimal', LOW: 'low' } as const;
 type ThinkingLevel = (typeof ThinkingLevel)[keyof typeof ThinkingLevel];
 
-interface GeminiClient {
+interface OpenAIClient {
   models: {
     generateContent: (args: {
       model: string;
@@ -33,7 +33,7 @@ export interface ApiResponse {
   end?: (body?: string) => void;
 }
 
-const PRIMARY_MODEL = 'gemini-3.8-flash';
+const PRIMARY_MODEL = 'gpt-6-luna';
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
   if (!rawBody) return {};
@@ -51,26 +51,34 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
   return {};
 }
 
-function toGeminiSchema(schema: Record<string, unknown>): Record<string, unknown> {
+function toOpenAISchema(schema: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = { ...schema };
+  if (typeof output.type === 'string') {
+    output.type = output.type.toLowerCase();
+  }
+  if (output.nullable === true && typeof output.type === 'string') {
+    output.type = [output.type, 'null'];
+    delete output.nullable;
+  }
   if (output.properties && typeof output.properties === 'object') {
     const properties = output.properties as Record<string, Record<string, unknown>>;
     output.properties = Object.fromEntries(
-      Object.entries(properties).map(([key, value]) => [key, toGeminiSchema(value)])
+      Object.entries(properties).map(([key, value]) => [key, toOpenAISchema(value)])
     );
-    delete output.additionalProperties;
+    output.required = Object.keys(properties);
+    output.additionalProperties = false;
   }
   if (output.items && typeof output.items === 'object') {
-    output.items = toGeminiSchema(output.items as Record<string, unknown>);
+    output.items = toOpenAISchema(output.items as Record<string, unknown>);
   }
   return output;
 }
 
-function getAiClient(): GeminiClient {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') {
+function getAiClient(): OpenAIClient {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_OPENAI_API_KEY') {
     throw new Error(
-      'GEMINI_API_KEY is not configured. Create a free key in Google AI Studio and add it in Vercel Project Settings > Environment Variables.'
+      'OPENAI_API_KEY is not configured. Create an API key at https://platform.openai.com/api-keys and add it in Vercel Project Settings > Environment Variables.'
     );
   }
 
@@ -78,36 +86,51 @@ function getAiClient(): GeminiClient {
     models: {
       async generateContent({ model, contents, config }) {
         const responseSchema = config?.responseSchema
-          ? toGeminiSchema(config.responseSchema)
+          ? toOpenAISchema(config.responseSchema)
           : undefined;
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: contents }] }],
-              generationConfig: {
-                responseMimeType: 'application/json',
-                ...(responseSchema ? { responseSchema } : {}),
-                maxOutputTokens: 1800,
-              },
-            }),
-            signal: AbortSignal.timeout(25000),
-          }
-        );
+        const response = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            input: [{ role: 'user', content: [{ type: 'input_text', text: contents }] }],
+            ...(responseSchema
+              ? {
+                  text: {
+                    format: {
+                      type: 'json_schema',
+                      name: 'sports_referee_result',
+                      strict: true,
+                      schema: responseSchema,
+                    },
+                  },
+                }
+              : {}),
+            max_output_tokens: 1800,
+          }),
+          signal: AbortSignal.timeout(25000),
+        });
 
         const payload = (await response.json()) as {
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-          error?: { message?: string; code?: number; status?: string };
+          output?: Array<{
+            type?: string;
+            content?: Array<{ type?: string; text?: string }>;
+          }>;
+          error?: { message?: string; code?: string };
         };
         if (!response.ok) {
-          const error = new Error(payload.error?.message || `Gemini API request failed (${response.status}).`) as Error & { status?: number };
+          const error = new Error(payload.error?.message || `OpenAI API request failed (${response.status}).`) as Error & { status?: number };
           error.status = response.status;
           throw error;
         }
-        const text = payload.candidates?.[0]?.content?.parts
-          ?.map((part) => part.text ?? '')
+        const text = payload.output
+          ?.filter((item) => item.type === 'message')
+          .flatMap((item) => item.content ?? [])
+          .filter((part) => part.type === 'output_text')
+          .map((part) => part.text ?? '')
           .join('') ?? '';
         return { text };
       },
@@ -228,7 +251,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
   ) {
     return {
       status: parsedCode ?? 400,
-      message: 'Gemini authentication error. Please check your GEMINI_API_KEY configuration.',
+      message: 'OpenAI authentication error. Please check your OPENAI_API_KEY configuration.',
     };
   }
   if (parsedCode === 503 || /503|UNAVAILABLE|high demand/i.test(rawMessage)) {
@@ -250,7 +273,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
 }
 
 async function generateWithFallback<T = unknown>(
-  ai: GeminiClient,
+  ai: OpenAIClient,
   contents: string,
   responseSchema: Record<string, unknown>,
   primaryThinking: ThinkingLevel = ThinkingLevel.MINIMAL
@@ -331,7 +354,7 @@ async function fetchWikipediaExtracts(query: string): Promise<WikiPageExtract[]>
 }
 
 async function verifyWithWikipedia(
-  ai: GeminiClient,
+  ai: OpenAIClient,
   prompt: string,
   sport: string,
   subCategory: string,
