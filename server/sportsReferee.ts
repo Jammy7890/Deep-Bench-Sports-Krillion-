@@ -2,7 +2,7 @@ const Type = { OBJECT: 'OBJECT', STRING: 'STRING', BOOLEAN: 'BOOLEAN', ARRAY: 'A
 const ThinkingLevel = { MINIMAL: 'minimal', LOW: 'low' } as const;
 type ThinkingLevel = (typeof ThinkingLevel)[keyof typeof ThinkingLevel];
 
-interface GroqClient {
+interface CerebrasClient {
   models: {
     generateContent: (args: {
       model: string;
@@ -33,7 +33,7 @@ export interface ApiResponse {
   end?: (body?: string) => void;
 }
 
-const PRIMARY_MODEL = 'qwen/qwen3.8-27b';
+const PRIMARY_MODEL = 'qwen-3.8-27b';
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
   if (!rawBody) return {};
@@ -51,7 +51,7 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
   return {};
 }
 
-function toGroqSchema(schema: Record<string, unknown>): Record<string, unknown> {
+function toCerebrasSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = { ...schema };
   const rawType = output.type;
   if (typeof rawType === 'string') output.type = rawType.toLowerCase();
@@ -62,21 +62,21 @@ function toGroqSchema(schema: Record<string, unknown>): Record<string, unknown> 
   if (output.properties && typeof output.properties === 'object') {
     const properties = output.properties as Record<string, Record<string, unknown>>;
     output.properties = Object.fromEntries(
-      Object.entries(properties).map(([key, value]) => [key, toGroqSchema(value)])
+      Object.entries(properties).map(([key, value]) => [key, toCerebrasSchema(value)])
     );
     output.additionalProperties = false;
   }
   if (output.items && typeof output.items === 'object') {
-    output.items = toGroqSchema(output.items as Record<string, unknown>);
+    output.items = toCerebrasSchema(output.items as Record<string, unknown>);
   }
   return output;
 }
 
-function getAiClient(): GroqClient {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_GROQ_API_KEY') {
+function getAiClient(): CerebrasClient {
+  const apiKey = process.env.CEREBRAS_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_CEREBRAS_API_KEY') {
     throw new Error(
-      'GROQ_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
+      'CEREBRAS_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
     );
   }
 
@@ -84,9 +84,9 @@ function getAiClient(): GroqClient {
     models: {
       async generateContent({ model, contents, config }) {
         const responseSchema = config?.responseSchema
-          ? toGroqSchema(config.responseSchema)
+          ? toCerebrasSchema(config.responseSchema)
           : undefined;
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${apiKey}`,
@@ -118,7 +118,7 @@ function getAiClient(): GroqClient {
           error?: { message?: string };
         };
         if (!response.ok) {
-          const error = new Error(payload.error?.message || `Groq API request failed (${response.status}).`) as Error & { status?: number };
+          const error = new Error(payload.error?.message || `Cerebras API request failed (${response.status}).`) as Error & { status?: number };
           error.status = response.status;
           throw error;
         }
@@ -241,7 +241,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
   ) {
     return {
       status: parsedCode ?? 400,
-      message: 'Groq authentication error. Please check your GROQ_API_KEY configuration.',
+      message: 'Cerebras authentication error. Please check your CEREBRAS_API_KEY configuration.',
     };
   }
   if (parsedCode === 503 || /503|UNAVAILABLE|high demand/i.test(rawMessage)) {
@@ -263,7 +263,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
 }
 
 async function generateWithFallback<T = unknown>(
-  ai: GroqClient,
+  ai: CerebrasClient,
   contents: string,
   responseSchema: Record<string, unknown>,
   primaryThinking: ThinkingLevel = ThinkingLevel.MINIMAL
@@ -344,7 +344,7 @@ async function fetchWikipediaExtracts(query: string): Promise<WikiPageExtract[]>
 }
 
 async function verifyWithWikipedia(
-  ai: GroqClient,
+  ai: CerebrasClient,
   prompt: string,
   sport: string,
   subCategory: string,
