@@ -60,7 +60,7 @@ Here's what's powering the project:
 - React 19 and TypeScript for the app
 - Vite for the frontend and development setup
 - Express for the server and API
-- OpenAI API (GPT-6 Luna) for generating questions and checking answers
+- Cloudflare Workers AI (Llama 3.3 70B) for generating questions and checking answers
 - Wikipedia API for extra fact-checking context when needed
 - Tailwind CSS 4 for styling
 - Motion for animations
@@ -70,7 +70,7 @@ Here's what's powering the project:
 Want to try it locally or work on the project? Here's how to get started.
 📋 What you'll need
 - Node.js (a current LTS version is recommended) or Bun
-- An OpenAI API key
+- A Cloudflare account and Workers AI API token
 - Git
 1. 📥 Clone the repository
 git clone https://github.com/Jammy7890/Deep-Bench-Sports-Krillion-.git
@@ -80,10 +80,12 @@ Using npm:
 npm install
 Or using Bun:
 bun install
-3. 🔑 Set up your OpenAI API key
-Create a .env file in the project's main folder. You can copy .env.example and add your key:
-OPENAI_API_KEY=your_openai_api_key_here
-Create a free API key at https://aistudio.google.com/apikey.
+3. 🔑 Set up Cloudflare Workers AI
+Create a Cloudflare account, then find your Account ID in the Cloudflare dashboard. Create an API token with permission to use Workers AI. Add both values to a .env file in the project's main folder:
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
+CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
+
+Workers AI includes 10,000 Neurons per day on its Free plan. Usage beyond that free allocation requires a paid Workers plan. Check the current model pricing and limits before scaling up.
 
 🔒 Keep your API key private. Don't upload your .env file to GitHub or put your key in frontend code. The .env.example file is just a template.
 4. ▶️ Start the app
@@ -120,13 +122,13 @@ Checks an answer against the current prompt. The request can include the prompt,
 
 The response includes whether the answer is accepted, its rarity, points, streak bonus, a referee note, and a canonical answer when accepted.
 🤖 A note about the AI referee
-OpenAI's GPT-6 Luna model generates prompts and evaluates submitted answers. The server uses OpenAI's structured JSON output so referee results match the format the game expects.
+Cloudflare Workers AI's Llama 3.3 70B model generates prompts and evaluates submitted answers. The server requests structured JSON output so referee results match the format the game expects.
 
 For some answers, the referee can also look up short Wikipedia extracts for extra context. This can help with facts about players, awards, records, and other sports details.
 
 One thing to keep in mind: rarity and pick-rate values are AI estimates, not results from an actual survey. Wikipedia checks can help, but they don't guarantee that every decision is correct. The AI referee is there to run the game, not replace an official sports database.
 
-You'll need an OpenAI API key. API usage is billed separately from ChatGPT subscriptions. Check the OpenAI API pricing page for current rates and set a usage budget in your API account.
+You'll need a Cloudflare Account ID and API token. Workers AI includes 10,000 Neurons per day at no charge on the Free plan. Usage above that allowance requires a paid Workers plan.
 📁 Project layout
 .
 ├── src/
