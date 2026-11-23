@@ -140,7 +140,7 @@ You'll need a Cloudflare Account ID and API token. Workers AI includes 10,000 Ne
 ├── .env.example           # Environment variable template
 ├── index.html
 ├── package.json
-├── server.ts              # Express API and OpenAI integration
+├── server.ts              # Express API and Cloudflare Workers AI integration
 ├── tsconfig.json
 └── vite.config.ts
 🚧 Project status
