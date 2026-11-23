@@ -82,7 +82,7 @@ Or using Bun:
 bun install
 3. 🔑 Set up your Gemini API key
 Create a .env file in the project's main folder. You can copy .env.example and add your key:
-GEMINI_API_KEY=your_groq_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 Create a free API key at https://aistudio.google.com/apikey.
 
 🔒 Keep your API key private. Don't upload your .env file to GitHub or put your key in frontend code. The .env.example file is just a template.
