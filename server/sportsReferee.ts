@@ -51,7 +51,7 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
   return {};
 }
 
-function toCloudflare Workers AISchema(schema: Record<string, unknown>): Record<string, unknown> {
+function toCloudflareSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = { ...schema };
   if (typeof output.type === 'string') {
     output.type = output.type.toLowerCase();
@@ -63,13 +63,13 @@ function toCloudflare Workers AISchema(schema: Record<string, unknown>): Record<
   if (output.properties && typeof output.properties === 'object') {
     const properties = output.properties as Record<string, Record<string, unknown>>;
     output.properties = Object.fromEntries(
-      Object.entries(properties).map(([key, value]) => [key, toCloudflare Workers AISchema(value)])
+      Object.entries(properties).map(([key, value]) => [key, toCloudflareSchema(value)])
     );
     output.required = Object.keys(properties);
     output.additionalProperties = false;
   }
   if (output.items && typeof output.items === 'object') {
-    output.items = toCloudflare Workers AISchema(output.items as Record<string, unknown>);
+    output.items = toCloudflareSchema(output.items as Record<string, unknown>);
   }
   return output;
 }
@@ -87,7 +87,7 @@ function getAiClient(): CloudflareAIClient {
     models: {
       async generateContent({ model, contents, config }) {
         const responseSchema = config?.responseSchema
-          ? toCloudflare Workers AISchema(config.responseSchema)
+          ? toCloudflareSchema(config.responseSchema)
           : undefined;
         const response = await fetch(
           `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
