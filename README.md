@@ -60,7 +60,7 @@ Here's what's powering the project:
 - React 19 and TypeScript for the app
 - Vite for the frontend and development setup
 - Express for the server and API
-- Groq API (Qwen 3.8 27B) for generating questions and checking answers
+- Cerebras Inference API (Qwen 3.8 27B) for generating questions and checking answers
 - Wikipedia API for extra fact-checking context when needed
 - Tailwind CSS 4 for styling
 - Motion for animations
@@ -70,7 +70,7 @@ Here's what's powering the project:
 Want to try it locally or work on the project? Here's how to get started.
 📋 What you'll need
 - Node.js (a current LTS version is recommended) or Bun
-- A Groq API key
+- A Cerebras API key
 - Git
 1. 📥 Clone the repository
 git clone https://github.com/Jammy7890/Deep-Bench-Sports-Krillion-.git
@@ -80,10 +80,10 @@ Using npm:
 npm install
 Or using Bun:
 bun install
-3. 🔑 Set up your Groq API key
+3. 🔑 Set up your Cerebras API key
 Create a .env file in the project's main folder. You can copy .env.example and add your key:
-GROQ_API_KEY=your_groq_api_key_here
-Create a free API key at https://console.groq.com/keys.
+CEREBRAS_API_KEY=your_groq_api_key_here
+Create a free API key at https://cloud.cerebras.ai/.
 
 🔒 Keep your API key private. Don't upload your .env file to GitHub or put your key in frontend code. The .env.example file is just a template.
 4. ▶️ Start the app
@@ -120,13 +120,13 @@ Checks an answer against the current prompt. The request can include the prompt,
 
 The response includes whether the answer is accepted, its rarity, points, streak bonus, a referee note, and a canonical answer when accepted.
 🤖 A note about the AI referee
-Groq's Qwen 3.8 27B model generates prompts and evaluates submitted answers. The server uses Groq's structured JSON output so referee results match the format the game expects.
+Cerebras' Qwen 3.8 27B model generates prompts and evaluates submitted answers. The server uses Cerebras' structured JSON output so referee results match the format the game expects.
 
 For some answers, the referee can also look up short Wikipedia extracts for extra context. This can help with facts about players, awards, records, and other sports details.
 
 One thing to keep in mind: rarity and pick-rate values are AI estimates, not results from an actual survey. Wikipedia checks can help, but they don't guarantee that every decision is correct. The AI referee is there to run the game, not replace an official sports database.
 
-You'll need a Groq API key. The free tier has rate and daily token limits, so heavy usage may be throttled.
+You'll need a Cerebras API key. Cerebras' Developer tier is pay-as-you-go. Its published Qwen 3.8 27B limits are 300 requests/minute and 150,000 uncached tokens/minute; check your account's Limits page because quotas can vary. The $5 promotional trial requires a payment method and expires after 30 days.
 📁 Project layout
 .
 ├── src/
