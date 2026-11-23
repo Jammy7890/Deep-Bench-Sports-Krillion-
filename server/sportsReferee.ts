@@ -1,4 +1,16 @@
-import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+const Type = { OBJECT: 'OBJECT', STRING: 'STRING', BOOLEAN: 'BOOLEAN', ARRAY: 'ARRAY' } as const;
+const ThinkingLevel = { MINIMAL: 'minimal', LOW: 'low' } as const;
+type ThinkingLevel = (typeof ThinkingLevel)[keyof typeof ThinkingLevel];
+
+interface GroqClient {
+  models: {
+    generateContent: (args: {
+      model: string;
+      contents: string;
+      config?: { thinkingConfig?: { thinkingLevel?: ThinkingLevel }; responseMimeType?: string; responseSchema?: Record<string, unknown> };
+    }) => Promise<{ text?: string }>;
+  };
+}
 import {
   RARITY_CONFIG,
   type EvaluationResult,
@@ -21,8 +33,7 @@ export interface ApiResponse {
   end?: (body?: string) => void;
 }
 
-const PRIMARY_MODEL = 'gemini-3.1-flash-lite';
-const FALLBACK_MODEL = 'gemini-4-hydrogen';
+const PRIMARY_MODEL = 'openai/gpt-oss-120b';
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
   if (!rawBody) return {};
@@ -40,21 +51,81 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
   return {};
 }
 
-function getAiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+function toGroqSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const output: Record<string, unknown> = { ...schema };
+  const rawType = output.type;
+  if (typeof rawType === 'string') output.type = rawType.toLowerCase();
+  if (output.nullable === true && typeof output.type === 'string') {
+    output.type = [output.type, 'null'];
+    delete output.nullable;
+  }
+  if (output.properties && typeof output.properties === 'object') {
+    const properties = output.properties as Record<string, Record<string, unknown>>;
+    output.properties = Object.fromEntries(
+      Object.entries(properties).map(([key, value]) => [key, toGroqSchema(value)])
+    );
+    output.additionalProperties = false;
+  }
+  if (output.items && typeof output.items === 'object') {
+    output.items = toGroqSchema(output.items as Record<string, unknown>);
+  }
+  return output;
+}
+
+function getAiClient(): GroqClient {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GROQ_API_KEY') {
     throw new Error(
-      'GEMINI_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables or Settings > Secrets.'
+      'GROQ_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
     );
   }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
+
+  return {
+    models: {
+      async generateContent({ model, contents, config }) {
+        const responseSchema = config?.responseSchema
+          ? toGroqSchema(config.responseSchema)
+          : undefined;
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: contents }],
+            reasoning_effort: 'low',
+            max_completion_tokens: 1800,
+            ...(responseSchema
+              ? {
+                  response_format: {
+                    type: 'json_schema',
+                    json_schema: {
+                      name: 'deep_bench_response',
+                      strict: false,
+                      schema: responseSchema,
+                    },
+                  },
+                }
+              : {}),
+          }),
+          signal: AbortSignal.timeout(25000),
+        });
+
+        const payload = (await response.json()) as {
+          choices?: Array<{ message?: { content?: string | null } }>;
+          error?: { message?: string };
+        };
+        if (!response.ok) {
+          const error = new Error(payload.error?.message || `Groq API request failed (${response.status}).`) as Error & { status?: number };
+          error.status = response.status;
+          throw error;
+        }
+        return { text: payload.choices?.[0]?.message?.content ?? '' };
       },
     },
-  });
+  };
 }
 
 function getCategoryFocusInstruction(category: SportCategory): string {
@@ -192,15 +263,14 @@ function formatApiError(err: unknown): { status: number; message: string } {
 }
 
 async function generateWithFallback<T = unknown>(
-  ai: GoogleGenAI,
+  ai: GroqClient,
   contents: string,
   responseSchema: Record<string, unknown>,
   primaryThinking: ThinkingLevel = ThinkingLevel.MINIMAL
 ): Promise<{ text: string; parsed: T }> {
   const attempts: Array<{ model: string; thinkingLevel: ThinkingLevel; delayMs: number }> = [
-    { model: PRIMARY_MODEL, thinkingLevel: primaryThinking, delayMs: 150 },
-    { model: FALLBACK_MODEL, thinkingLevel: ThinkingLevel.LOW, delayMs: 150 },
-    { model: FALLBACK_MODEL, thinkingLevel: ThinkingLevel.LOW, delayMs: 0 },
+    { model: PRIMARY_MODEL, thinkingLevel: primaryThinking, delayMs: 100 },
+    { model: PRIMARY_MODEL, thinkingLevel: primaryThinking, delayMs: 0 },
   ];
 
   let lastError: unknown;
@@ -217,20 +287,13 @@ async function generateWithFallback<T = unknown>(
       });
       const text = (response.text ?? '').trim();
       const parsed = safeParseJsonText<T>(text);
-      if (parsed === null) {
-        throw new Error(`Model ${step.model} returned non-JSON response.`);
-      }
+      if (parsed === null) throw new Error(`Model ${step.model} returned non-JSON response.`);
       return { text, parsed };
     } catch (err) {
       lastError = err;
-      const isMalformed =
-        err instanceof Error && err.message.includes('returned non-JSON response');
-      if (!isTransientError(err) && !isMalformed) {
-        throw err;
-      }
-      if (step.delayMs > 0) {
-        await new Promise((r) => setTimeout(r, step.delayMs));
-      }
+      const malformed = err instanceof Error && err.message.includes('returned non-JSON response');
+      if (!isTransientError(err) && !malformed) throw err;
+      if (step.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, step.delayMs));
     }
   }
   throw lastError;
@@ -281,7 +344,7 @@ async function fetchWikipediaExtracts(query: string): Promise<WikiPageExtract[]>
 }
 
 async function verifyWithWikipedia(
-  ai: GoogleGenAI,
+  ai: GroqClient,
   prompt: string,
   sport: string,
   subCategory: string,
