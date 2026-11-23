@@ -53,18 +53,12 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
 
 function toGeminiSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = { ...schema };
-  const rawType = output.type;
-  if (typeof rawType === 'string') output.type = rawType.toLowerCase();
-  if (output.nullable === true && typeof output.type === 'string') {
-    output.type = [output.type, 'null'];
-    delete output.nullable;
-  }
   if (output.properties && typeof output.properties === 'object') {
     const properties = output.properties as Record<string, Record<string, unknown>>;
     output.properties = Object.fromEntries(
       Object.entries(properties).map(([key, value]) => [key, toGeminiSchema(value)])
     );
-    output.additionalProperties = false;
+    delete output.additionalProperties;
   }
   if (output.items && typeof output.items === 'object') {
     output.items = toGeminiSchema(output.items as Record<string, unknown>);
