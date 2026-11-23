@@ -124,8 +124,9 @@ function getAiClient(): CloudflareAIClient {
             payload.error?.message ||
             payload.errors?.map((item) => item.message).filter(Boolean).join('; ') ||
             `Cloudflare Workers AI request failed (${response.status}).`;
-          const error = new Error(errorMessage) as Error & { status?: number };
+          const error = new Error(errorMessage) as Error & { status?: number; cloudflareCode?: number };
           error.status = response.status;
+          error.cloudflareCode = payload.errors?.[0]?.code;
           throw error;
         }
         const content = payload.choices?.[0]?.message?.content;
@@ -189,6 +190,8 @@ function normalizeMatchType(value: string | undefined | null, isValid: boolean):
 
 function isTransientError(err: unknown): boolean {
   const status = (err as { status?: number })?.status;
+  const cloudflareCode = (err as { cloudflareCode?: number })?.cloudflareCode;
+  if (cloudflareCode === 3036 || cloudflareCode === 5035 || cloudflareCode === 5007) return false;
   if (
     status === 404 ||
     status === 408 ||
@@ -230,6 +233,7 @@ function safeParseJsonText<T>(rawText: string | undefined | null): T | null {
 
 function formatApiError(err: unknown): { status: number; message: string } {
   const rawStatus = (err as { status?: number })?.status;
+  const cloudflareCode = (err as { cloudflareCode?: number })?.cloudflareCode;
   const rawMessage = err instanceof Error ? err.message : 'Unexpected server error.';
 
   let parsedMessage = rawMessage;
@@ -246,9 +250,17 @@ function formatApiError(err: unknown): { status: number; message: string } {
     // Keep rawMessage
   }
 
+  if (cloudflareCode === 5035) {
+    return { status: 403, message: 'This Cloudflare model requires a paid Workers plan. Choose a free-tier model or upgrade the Cloudflare plan.' };
+  }
+  if (cloudflareCode === 3036) {
+    return { status: 429, message: 'The Cloudflare Workers AI free daily allowance has been used. It resets at 00:00 UTC.' };
+  }
+  if (cloudflareCode === 3040) {
+    return { status: 503, message: 'Cloudflare AI is temporarily out of capacity. Please retry in a moment.' };
+  }
   if (
     parsedCode === 401 ||
-    parsedCode === 403 ||
     /API_KEY_INVALID|PERMISSION_DENIED/i.test(rawMessage)
   ) {
     return {
