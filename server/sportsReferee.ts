@@ -2,7 +2,7 @@ const Type = { OBJECT: 'OBJECT', STRING: 'STRING', BOOLEAN: 'BOOLEAN', ARRAY: 'A
 const ThinkingLevel = { MINIMAL: 'minimal', LOW: 'low' } as const;
 type ThinkingLevel = (typeof ThinkingLevel)[keyof typeof ThinkingLevel];
 
-interface OpenAIClient {
+interface CloudflareAIClient {
   models: {
     generateContent: (args: {
       model: string;
@@ -33,7 +33,7 @@ export interface ApiResponse {
   end?: (body?: string) => void;
 }
 
-const PRIMARY_MODEL = 'gpt-6-luna';
+const PRIMARY_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
   if (!rawBody) return {};
@@ -51,7 +51,7 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
   return {};
 }
 
-function toOpenAISchema(schema: Record<string, unknown>): Record<string, unknown> {
+function toCloudflare Workers AISchema(schema: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = { ...schema };
   if (typeof output.type === 'string') {
     output.type = output.type.toLowerCase();
@@ -63,22 +63,23 @@ function toOpenAISchema(schema: Record<string, unknown>): Record<string, unknown
   if (output.properties && typeof output.properties === 'object') {
     const properties = output.properties as Record<string, Record<string, unknown>>;
     output.properties = Object.fromEntries(
-      Object.entries(properties).map(([key, value]) => [key, toOpenAISchema(value)])
+      Object.entries(properties).map(([key, value]) => [key, toCloudflare Workers AISchema(value)])
     );
     output.required = Object.keys(properties);
     output.additionalProperties = false;
   }
   if (output.items && typeof output.items === 'object') {
-    output.items = toOpenAISchema(output.items as Record<string, unknown>);
+    output.items = toCloudflare Workers AISchema(output.items as Record<string, unknown>);
   }
   return output;
 }
 
-function getAiClient(): OpenAIClient {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_OPENAI_API_KEY') {
+function getAiClient(): CloudflareAIClient {
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (!apiToken || !accountId || apiToken === 'YOUR_CLOUDFLARE_API_TOKEN' || accountId === 'YOUR_CLOUDFLARE_ACCOUNT_ID') {
     throw new Error(
-      'OPENAI_API_KEY is not configured. Create an API key at https://platform.openai.com/api-keys and add it in Vercel Project Settings > Environment Variables.'
+      'Cloudflare Workers AI is not configured. Add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in Vercel Project Settings > Environment Variables.'
     );
   }
 
@@ -86,52 +87,53 @@ function getAiClient(): OpenAIClient {
     models: {
       async generateContent({ model, contents, config }) {
         const responseSchema = config?.responseSchema
-          ? toOpenAISchema(config.responseSchema)
+          ? toCloudflare Workers AISchema(config.responseSchema)
           : undefined;
-        const response = await fetch('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            input: [{ role: 'user', content: [{ type: 'input_text', text: contents }] }],
-            ...(responseSchema
-              ? {
-                  text: {
-                    format: {
+        const response = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiToken}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: 'user', content: contents }],
+              ...(responseSchema
+                ? {
+                    response_format: {
                       type: 'json_schema',
-                      name: 'sports_referee_result',
-                      strict: true,
-                      schema: responseSchema,
+                      json_schema: responseSchema,
                     },
-                  },
-                }
-              : {}),
-            max_output_tokens: 1800,
-          }),
-          signal: AbortSignal.timeout(25000),
-        });
+                  }
+                : {}),
+              max_tokens: 1800,
+            }),
+            signal: AbortSignal.timeout(25000),
+          }
+        );
 
         const payload = (await response.json()) as {
-          output?: Array<{
-            type?: string;
-            content?: Array<{ type?: string; text?: string }>;
-          }>;
+          choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
+          errors?: Array<{ message?: string; code?: number }>;
           error?: { message?: string; code?: string };
         };
         if (!response.ok) {
-          const error = new Error(payload.error?.message || `OpenAI API request failed (${response.status}).`) as Error & { status?: number };
+          const errorMessage =
+            payload.error?.message ||
+            payload.errors?.map((item) => item.message).filter(Boolean).join('; ') ||
+            `Cloudflare Workers AI request failed (${response.status}).`;
+          const error = new Error(errorMessage) as Error & { status?: number };
           error.status = response.status;
           throw error;
         }
-        const text = payload.output
-          ?.filter((item) => item.type === 'message')
-          .flatMap((item) => item.content ?? [])
-          .filter((part) => part.type === 'output_text')
-          .map((part) => part.text ?? '')
-          .join('') ?? '';
+        const content = payload.choices?.[0]?.message?.content;
+        const text = typeof content === 'string'
+          ? content
+          : Array.isArray(content)
+            ? content.map((part) => part.text ?? '').join('')
+            : '';
         return { text };
       },
     },
@@ -251,7 +253,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
   ) {
     return {
       status: parsedCode ?? 400,
-      message: 'OpenAI authentication error. Please check your OPENAI_API_KEY configuration.',
+      message: 'Cloudflare authentication error. Check your CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN settings.',
     };
   }
   if (parsedCode === 503 || /503|UNAVAILABLE|high demand/i.test(rawMessage)) {
@@ -273,7 +275,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
 }
 
 async function generateWithFallback<T = unknown>(
-  ai: OpenAIClient,
+  ai: CloudflareAIClient,
   contents: string,
   responseSchema: Record<string, unknown>,
   primaryThinking: ThinkingLevel = ThinkingLevel.MINIMAL
@@ -354,7 +356,7 @@ async function fetchWikipediaExtracts(query: string): Promise<WikiPageExtract[]>
 }
 
 async function verifyWithWikipedia(
-  ai: OpenAIClient,
+  ai: CloudflareAIClient,
   prompt: string,
   sport: string,
   subCategory: string,
