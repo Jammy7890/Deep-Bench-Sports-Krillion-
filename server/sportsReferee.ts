@@ -33,7 +33,7 @@ export interface ApiResponse {
   end?: (body?: string) => void;
 }
 
-const PRIMARY_MODEL = 'anthropic/claude-haiku-5.5';
+const PRIMARY_MODEL = 'qwen/qwen3.8-27b';
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
   if (!rawBody) return {};
@@ -73,10 +73,10 @@ function toGroqSchema(schema: Record<string, unknown>): Record<string, unknown> 
 }
 
 function getAiClient(): GroqClient {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey || apiKey === 'YOUR_GROQ_API_KEY') {
     throw new Error(
-      'AI_GATEWAY_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
+      'GROQ_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
     );
   }
 
@@ -86,7 +86,7 @@ function getAiClient(): GroqClient {
         const responseSchema = config?.responseSchema
           ? toGroqSchema(config.responseSchema)
           : undefined;
-        const response = await fetch('https://ai-gateway.vercel.sh/v1/chat/completions', {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${apiKey}`,
@@ -96,6 +96,7 @@ function getAiClient(): GroqClient {
             model,
             messages: [{ role: 'user', content: contents }],
             max_completion_tokens: 1800,
+            reasoning_effort: config?.thinkingConfig?.thinkingLevel === 'low' ? 'low' : 'none',
             ...(responseSchema
               ? {
                   response_format: {
@@ -240,7 +241,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
   ) {
     return {
       status: parsedCode ?? 400,
-      message: 'AI Gateway authentication error. Please check your AI_GATEWAY_API_KEY configuration.',
+      message: 'Groq authentication error. Please check your GROQ_API_KEY configuration.',
     };
   }
   if (parsedCode === 503 || /503|UNAVAILABLE|high demand/i.test(rawMessage)) {
