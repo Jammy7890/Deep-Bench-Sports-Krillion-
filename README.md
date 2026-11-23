@@ -106,7 +106,9 @@ npm run clean	Removes generated build/server output
 
 
 🔌 API endpoints
-The app currently has two main API endpoints:
+The app currently has three API endpoints:
+
+- `GET /api/health` checks whether Cloudflare credentials are configured. It does not make an AI request or reveal secrets.
 🎯 POST /api/questions/batch
 Creates a batch of sports prompts for the category you choose.
 
