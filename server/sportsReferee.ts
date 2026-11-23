@@ -33,7 +33,7 @@ export interface ApiResponse {
   end?: (body?: string) => void;
 }
 
-const PRIMARY_MODEL = 'openai/gpt-oss-120b';
+const PRIMARY_MODEL = 'anthropic/claude-haiku-5.5';
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
   if (!rawBody) return {};
@@ -73,10 +73,10 @@ function toGroqSchema(schema: Record<string, unknown>): Record<string, unknown> 
 }
 
 function getAiClient(): GroqClient {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.AI_GATEWAY_API_KEY;
   if (!apiKey || apiKey === 'YOUR_GROQ_API_KEY') {
     throw new Error(
-      'GROQ_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
+      'AI_GATEWAY_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
     );
   }
 
@@ -86,7 +86,7 @@ function getAiClient(): GroqClient {
         const responseSchema = config?.responseSchema
           ? toGroqSchema(config.responseSchema)
           : undefined;
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const response = await fetch('https://ai-gateway.vercel.sh/v1/chat/completions', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${apiKey}`,
@@ -95,7 +95,6 @@ function getAiClient(): GroqClient {
           body: JSON.stringify({
             model,
             messages: [{ role: 'user', content: contents }],
-            reasoning_effort: 'low',
             max_completion_tokens: 1800,
             ...(responseSchema
               ? {
@@ -241,7 +240,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
   ) {
     return {
       status: parsedCode ?? 400,
-      message: 'Gemini API key error. Please check your GEMINI_API_KEY configuration.',
+      message: 'AI Gateway authentication error. Please check your AI_GATEWAY_API_KEY configuration.',
     };
   }
   if (parsedCode === 503 || /503|UNAVAILABLE|high demand/i.test(rawMessage)) {
