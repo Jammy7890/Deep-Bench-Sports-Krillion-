@@ -60,7 +60,7 @@ Here's what's powering the project:
 - React 19 and TypeScript for the app
 - Vite for the frontend and development setup
 - Express for the server and API
-- Groq API (GPT-OSS 120B) for generating questions and checking answers
+- Groq API (Qwen 3.8 27B) for generating questions and checking answers
 - Wikipedia API for extra fact-checking context when needed
 - Tailwind CSS 4 for styling
 - Motion for animations
@@ -120,7 +120,7 @@ Checks an answer against the current prompt. The request can include the prompt,
 
 The response includes whether the answer is accepted, its rarity, points, streak bonus, a referee note, and a canonical answer when accepted.
 🤖 A note about the AI referee
-Groq's GPT-OSS 120B model generates prompts and evaluates submitted answers. The server uses Groq's structured JSON output so referee results match the format the game expects.
+Groq's Qwen 3.8 27B model generates prompts and evaluates submitted answers. The server uses Groq's structured JSON output so referee results match the format the game expects.
 
 For some answers, the referee can also look up short Wikipedia extracts for extra context. This can help with facts about players, awards, records, and other sports details.
 
