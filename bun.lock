@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "react-example",
+      "name": "deep-bench-sports-krillion",
       "dependencies": {
         "@google/genai": "^3.6.1",
         "@tailwindcss/vite": "^4.3.3",
@@ -15,10 +15,10 @@
         "react": "^19.0.1",
         "react-dom": "^19.0.1",
         "vite": "^8.3.0",
+        "@types/node": "^22.14.0",
       },
       "devDependencies": {
         "@types/express": "^4.17.21",
-        "@types/node": "^22.14.0",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
         "autoprefixer": "^10.4.21",
