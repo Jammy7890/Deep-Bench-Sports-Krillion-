@@ -88,7 +88,9 @@ export default function App() {
   const usedPromptsRef = useRef<string[]>([]);
   const prefetchingRef = useRef<boolean>(false);
   const prewarmedRef = useRef<Partial<Record<SportCategory, QuestionPrompt[]>>>({});
-  const prewarmingCategoryRef = useRef<SportCategory | null>(null);
+  const prewarmPromisesRef = useRef<
+    Partial<Record<SportCategory, Promise<QuestionPrompt[]>>>
+  >({});
   const timeoutFiredRef = useRef<boolean>(false);
   const lastWarningSecondRef = useRef<number>(-1);
   const runSavedRef = useRef<boolean>(false);
@@ -125,23 +127,23 @@ export default function App() {
   useEffect(() => {
     if (gameState !== 'TITLE_MENU') return;
     if ((prewarmedRef.current[selectedCategory]?.length ?? 0) > 0) return;
-    if (prewarmingCategoryRef.current === selectedCategory) return;
+    if (prewarmPromisesRef.current[selectedCategory]) return;
 
-    prewarmingCategoryRef.current = selectedCategory;
-    fetchQuestionBatch(selectedCategory, 4)
+    const promise = fetchQuestionBatch(selectedCategory, 4)
       .then((batch) => {
         if (batch.length > 0) {
           prewarmedRef.current[selectedCategory] = batch;
         }
+        return batch;
       })
-      .catch(() => {
-        // Silent pre-warm failure; startNewRun will fetch explicitly and surface any error
-      })
+      .catch(() => [] as QuestionPrompt[])
       .finally(() => {
-        if (prewarmingCategoryRef.current === selectedCategory) {
-          prewarmingCategoryRef.current = null;
+        if (prewarmPromisesRef.current[selectedCategory] === promise) {
+          delete prewarmPromisesRef.current[selectedCategory];
         }
       });
+
+    prewarmPromisesRef.current[selectedCategory] = promise;
   }, [gameState, selectedCategory, fetchQuestionBatch]);
 
   // Background prefetch to keep Endless Mode instant
@@ -233,10 +235,20 @@ export default function App() {
     }
 
     setIsStarting(true);
-    usedPromptsRef.current = [];
 
     try {
-      const batch = await fetchQuestionBatch(selectedCategory, 4);
+      let batch: QuestionPrompt[] = [];
+      const inFlight = prewarmPromisesRef.current[selectedCategory];
+      if (inFlight) {
+        batch = await inFlight;
+        delete prewarmedRef.current[selectedCategory];
+      }
+      if (batch.length === 0) {
+        usedPromptsRef.current = [];
+        batch = await fetchQuestionBatch(selectedCategory, 4);
+      } else {
+        usedPromptsRef.current = batch.map((q) => q.prompt);
+      }
       if (activeRunIdRef.current !== runId) return;
       const [first, ...rest] = batch;
       if (!first) {
@@ -306,19 +318,22 @@ export default function App() {
         const timeUsed = timedMode
           ? Number((shotClockSeconds - timeRemaining).toFixed(1))
           : null;
+        const nextLives = Math.max(0, lives - 1);
+        const entry: RoundHistoryEntry = {
+          roundNumber,
+          question: currentQuestion,
+          evaluation: instantResult,
+          timeUsedSeconds: timeUsed,
+        };
+        const updatedHistory = [...history, entry];
         playStrikeSound(muted);
-        setLives((prev) => Math.max(0, prev - 1));
+        setLives(nextLives);
         setStreak(0);
-        setHistory((prev) => [
-          ...prev,
-          {
-            roundNumber,
-            question: currentQuestion,
-            evaluation: instantResult,
-            timeUsedSeconds: timeUsed,
-          },
-        ]);
+        setHistory(updatedHistory);
         setEvaluation(instantResult);
+        if (nextLives <= 0) {
+          finalizeAndSaveRun(score, bestStreak, highestRarity, updatedHistory);
+        }
         return;
       }
 
@@ -398,16 +413,25 @@ export default function App() {
           ? Number((shotClockSeconds - timeRemaining).toFixed(1))
           : null;
 
+        let nextScore = score;
+        let nextBestStreak = bestStreak;
+        let nextHighestRarity = highestRarity;
+        let nextLives = lives;
+
         if (finalResult.isValid && finalResult.rarity) {
           playValidSound(finalResult.rarity, muted);
           const nextStreak = streak + 1;
-          setScore((prev) => prev + finalResult.totalPoints);
+          nextScore = score + finalResult.totalPoints;
+          nextBestStreak = Math.max(bestStreak, nextStreak);
+          nextHighestRarity = pickHighestRarity(highestRarity, finalResult.rarity);
+          setScore(nextScore);
           setStreak(nextStreak);
-          setBestStreak((prev) => Math.max(prev, nextStreak));
-          setHighestRarity((prev) => pickHighestRarity(prev, finalResult.rarity));
+          setBestStreak(nextBestStreak);
+          setHighestRarity(nextHighestRarity);
         } else {
           playStrikeSound(muted);
-          setLives((prev) => Math.max(0, prev - 1));
+          nextLives = Math.max(0, lives - 1);
+          setLives(nextLives);
           setStreak(0);
         }
 
@@ -417,10 +441,58 @@ export default function App() {
           evaluation: finalResult,
           timeUsedSeconds: timeUsed,
         };
-        setHistory((prev) => [...prev, entry]);
+        const updatedHistory = [...history, entry];
+        setHistory(updatedHistory);
         setEvaluation(finalResult);
+        if (nextLives <= 0) {
+          finalizeAndSaveRun(
+            nextScore,
+            nextBestStreak,
+            nextHighestRarity,
+            updatedHistory
+          );
+        }
       } catch (err) {
         if (activeRunIdRef.current !== runId) return;
+        if (timedOut || skipped) {
+          const fallbackResult: EvaluationResult = {
+            isValid: false,
+            belowMinRarity: false,
+            detectedRarity: null,
+            matchType: timedOut ? 'TIMEOUT' : 'INVALID',
+            rawInput: skipped ? 'Skipped' : '—',
+            canonicalAnswer: null,
+            rarity: null,
+            pickRate: null,
+            basePoints: 0,
+            streakBonus: 0,
+            totalPoints: 0,
+            refereeNote: skipped
+              ? 'Passed on this prompt (-1 Life).'
+              : 'Shot clock expired before locking in a matching answer.',
+            tierExamples: currentQuestion.tierExamples ?? [],
+          };
+          const timeUsed = timedMode
+            ? Number((shotClockSeconds - timeRemaining).toFixed(1))
+            : null;
+          const nextLives = Math.max(0, lives - 1);
+          const entry: RoundHistoryEntry = {
+            roundNumber,
+            question: currentQuestion,
+            evaluation: fallbackResult,
+            timeUsedSeconds: timeUsed,
+          };
+          const updatedHistory = [...history, entry];
+          playStrikeSound(muted);
+          setLives(nextLives);
+          setStreak(0);
+          setHistory(updatedHistory);
+          setEvaluation(fallbackResult);
+          if (nextLives <= 0) {
+            finalizeAndSaveRun(score, bestStreak, highestRarity, updatedHistory);
+          }
+          return;
+        }
         setErrorMessage(
           err instanceof Error
             ? err.message
@@ -434,13 +506,19 @@ export default function App() {
     },
     [
       answerInput,
+      bestStreak,
       currentQuestion,
       evaluation,
+      finalizeAndSaveRun,
+      highestRarity,
+      history,
       isEvaluating,
+      lives,
       minRarity,
       muted,
       rejectedGuesses,
       roundNumber,
+      score,
       shotClockSeconds,
       streak,
       timeRemaining,

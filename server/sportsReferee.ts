@@ -299,11 +299,12 @@ async function verifyWithWikipedia(
   } | null;
   verifiedSource: { title: string; url: string } | null;
 }> {
+  const cleanSport = sport.split('&')[0].trim();
   const queries: string[] = [];
   if (resolvedEntity && resolvedEntity.toLowerCase() !== rawInput.toLowerCase()) {
     queries.push(resolvedEntity);
   }
-  queries.push(`${rawInput} ${sport}`);
+  queries.push(`${rawInput} ${cleanSport}`);
 
   const results = await Promise.all(queries.map((q) => fetchWikipediaExtracts(q)));
   const seen = new Set<number>();
