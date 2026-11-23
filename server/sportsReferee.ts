@@ -2,7 +2,7 @@ const Type = { OBJECT: 'OBJECT', STRING: 'STRING', BOOLEAN: 'BOOLEAN', ARRAY: 'A
 const ThinkingLevel = { MINIMAL: 'minimal', LOW: 'low' } as const;
 type ThinkingLevel = (typeof ThinkingLevel)[keyof typeof ThinkingLevel];
 
-interface CerebrasClient {
+interface GeminiClient {
   models: {
     generateContent: (args: {
       model: string;
@@ -33,7 +33,7 @@ export interface ApiResponse {
   end?: (body?: string) => void;
 }
 
-const PRIMARY_MODEL = 'qwen-3.8-27b';
+const PRIMARY_MODEL = 'gemini-3.8-flash';
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
   if (!rawBody) return {};
@@ -51,7 +51,7 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
   return {};
 }
 
-function toCerebrasSchema(schema: Record<string, unknown>): Record<string, unknown> {
+function toGeminiSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = { ...schema };
   const rawType = output.type;
   if (typeof rawType === 'string') output.type = rawType.toLowerCase();
@@ -62,21 +62,21 @@ function toCerebrasSchema(schema: Record<string, unknown>): Record<string, unkno
   if (output.properties && typeof output.properties === 'object') {
     const properties = output.properties as Record<string, Record<string, unknown>>;
     output.properties = Object.fromEntries(
-      Object.entries(properties).map(([key, value]) => [key, toCerebrasSchema(value)])
+      Object.entries(properties).map(([key, value]) => [key, toGeminiSchema(value)])
     );
     output.additionalProperties = false;
   }
   if (output.items && typeof output.items === 'object') {
-    output.items = toCerebrasSchema(output.items as Record<string, unknown>);
+    output.items = toGeminiSchema(output.items as Record<string, unknown>);
   }
   return output;
 }
 
-function getAiClient(): CerebrasClient {
-  const apiKey = process.env.CEREBRAS_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_CEREBRAS_API_KEY') {
+function getAiClient(): GeminiClient {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') {
     throw new Error(
-      'CEREBRAS_API_KEY is not configured. Add it in Vercel Project Settings > Environment Variables.'
+      'GEMINI_API_KEY is not configured. Create a free key in Google AI Studio and add it in Vercel Project Settings > Environment Variables.'
     );
   }
 
@@ -84,45 +84,38 @@ function getAiClient(): CerebrasClient {
     models: {
       async generateContent({ model, contents, config }) {
         const responseSchema = config?.responseSchema
-          ? toCerebrasSchema(config.responseSchema)
+          ? toGeminiSchema(config.responseSchema)
           : undefined;
-        const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content: contents }],
-            max_completion_tokens: 1800,
-            reasoning_effort: config?.thinkingConfig?.thinkingLevel === 'low' ? 'low' : 'none',
-            ...(responseSchema
-              ? {
-                  response_format: {
-                    type: 'json_schema',
-                    json_schema: {
-                      name: 'deep_bench_response',
-                      strict: false,
-                      schema: responseSchema,
-                    },
-                  },
-                }
-              : {}),
-          }),
-          signal: AbortSignal.timeout(25000),
-        });
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: contents }] }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                ...(responseSchema ? { responseSchema } : {}),
+                maxOutputTokens: 1800,
+              },
+            }),
+            signal: AbortSignal.timeout(25000),
+          }
+        );
 
         const payload = (await response.json()) as {
-          choices?: Array<{ message?: { content?: string | null } }>;
-          error?: { message?: string };
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          error?: { message?: string; code?: number; status?: string };
         };
         if (!response.ok) {
-          const error = new Error(payload.error?.message || `Cerebras API request failed (${response.status}).`) as Error & { status?: number };
+          const error = new Error(payload.error?.message || `Gemini API request failed (${response.status}).`) as Error & { status?: number };
           error.status = response.status;
           throw error;
         }
-        return { text: payload.choices?.[0]?.message?.content ?? '' };
+        const text = payload.candidates?.[0]?.content?.parts
+          ?.map((part) => part.text ?? '')
+          .join('') ?? '';
+        return { text };
       },
     },
   };
@@ -241,7 +234,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
   ) {
     return {
       status: parsedCode ?? 400,
-      message: 'Cerebras authentication error. Please check your CEREBRAS_API_KEY configuration.',
+      message: 'Gemini authentication error. Please check your GEMINI_API_KEY configuration.',
     };
   }
   if (parsedCode === 503 || /503|UNAVAILABLE|high demand/i.test(rawMessage)) {
@@ -263,7 +256,7 @@ function formatApiError(err: unknown): { status: number; message: string } {
 }
 
 async function generateWithFallback<T = unknown>(
-  ai: CerebrasClient,
+  ai: GeminiClient,
   contents: string,
   responseSchema: Record<string, unknown>,
   primaryThinking: ThinkingLevel = ThinkingLevel.MINIMAL
@@ -344,7 +337,7 @@ async function fetchWikipediaExtracts(query: string): Promise<WikiPageExtract[]>
 }
 
 async function verifyWithWikipedia(
-  ai: CerebrasClient,
+  ai: GeminiClient,
   prompt: string,
   sport: string,
   subCategory: string,
