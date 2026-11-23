@@ -169,11 +169,42 @@ export interface RoundHistoryEntry {
   timeUsedSeconds: number | null;
 }
 
+export type PaceMode = 'bullet' | 'standard' | 'untimed';
+
+export interface PaceMeta {
+  id: PaceMode;
+  label: string;
+  shortLabel: string;
+  seconds: number | null;
+}
+
+export const PACE_CONFIG: Record<PaceMode, PaceMeta> = {
+  bullet: {
+    id: 'bullet',
+    label: '10s Bullet',
+    shortLabel: '10s Bullet',
+    seconds: 10,
+  },
+  standard: {
+    id: 'standard',
+    label: '25s Clock',
+    shortLabel: '25s Clock',
+    seconds: 25,
+  },
+  untimed: {
+    id: 'untimed',
+    label: 'Untimed',
+    shortLabel: 'Untimed',
+    seconds: null,
+  },
+};
+
 export interface SavedRun {
   id: string;
   playedAt: string;
   category: SportCategory;
   timedMode: boolean;
+  paceMode?: PaceMode;
   score: number;
   correctCount: number;
   totalRounds: number;
@@ -181,3 +212,4 @@ export interface SavedRun {
   highestRarity: RarityTier | null;
   entries: RoundHistoryEntry[];
 }
+

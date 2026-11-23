@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react';
-import { RARITY_CONFIG, type SavedRun } from '../types';
+import { PACE_CONFIG, RARITY_CONFIG, type SavedRun } from '../types';
 import { RarityEmblem } from './RarityEmblem';
 
 interface BenchLogViewProps {
@@ -17,7 +17,7 @@ export function BenchLogView({
   const totalCorrect = runs.reduce((sum, r) => sum + r.correctCount, 0);
   const mythicCount = runs.reduce(
     (sum, r) =>
-      sum + r.entries.filter((e) => e.evaluation.rarity === 'Mythic').length,
+      sum + (r.entries ?? []).filter((e) => e?.evaluation?.rarity === 'Mythic').length,
     0
   );
 
@@ -93,6 +93,11 @@ export function BenchLogView({
                 const rareMeta = run.highestRarity
                   ? RARITY_CONFIG[run.highestRarity]
                   : null;
+                const paceLabel = run.paceMode
+                  ? PACE_CONFIG[run.paceMode].shortLabel
+                  : run.timedMode
+                    ? '25s Clock'
+                    : 'Untimed';
 
                 return (
                   <div
@@ -105,7 +110,7 @@ export function BenchLogView({
                         <span aria-hidden="true" className="text-[#CBD5E1]">
                           ·
                         </span>
-                        <span>{run.timedMode ? '25s Clock' : 'Untimed'}</span>
+                        <span>{paceLabel}</span>
                         <span aria-hidden="true" className="text-[#CBD5E1]">
                           ·
                         </span>

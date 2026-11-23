@@ -7,7 +7,9 @@ import { TitleView } from './components/TitleView';
 import { TopBar, type NavTab } from './components/TopBar';
 import {
   getMinRarityForRound,
+  PACE_CONFIG,
   type EvaluationResult,
+  type PaceMode,
   type QuestionPrompt,
   type RarityTier,
   type RoundHistoryEntry,
@@ -25,7 +27,20 @@ import {
 type GameState = 'TITLE_MENU' | 'PLAYING' | 'GAME_OVER';
 
 const MAX_LIVES = 3;
-const SHOT_CLOCK_SECONDS = 25;
+
+async function safeReadJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      res.ok
+        ? 'Received an unexpected response from the server.'
+        : `Server error (${res.status}). Please try again.`
+    );
+  }
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('play');
@@ -33,8 +48,11 @@ export default function App() {
 
   const [selectedCategory, setSelectedCategory] =
     useState<SportCategory>('All Sports');
-  const [timedMode, setTimedMode] = useState<boolean>(true);
+  const [paceMode, setPaceMode] = useState<PaceMode>('standard');
   const [muted, setMuted] = useState<boolean>(false);
+
+  const timedMode = paceMode !== 'untimed';
+  const shotClockSeconds = PACE_CONFIG[paceMode].seconds ?? 25;
 
   const [savedRuns, setSavedRuns] = useState<SavedRun[]>(() => loadSavedRuns());
 
@@ -53,7 +71,7 @@ export default function App() {
   );
   const [answerInput, setAnswerInput] = useState<string>('');
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
-  const [timeRemaining, setTimeRemaining] = useState<number>(SHOT_CLOCK_SECONDS);
+  const [timeRemaining, setTimeRemaining] = useState<number>(shotClockSeconds);
 
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const [isLoadingQuestion, setIsLoadingQuestion] = useState<boolean>(false);
@@ -74,6 +92,7 @@ export default function App() {
   const timeoutFiredRef = useRef<boolean>(false);
   const lastWarningSecondRef = useRef<number>(-1);
   const runSavedRef = useRef<boolean>(false);
+  const activeRunIdRef = useRef<number>(0);
 
   const fetchQuestionBatch = useCallback(
     async (category: SportCategory, count = 4): Promise<QuestionPrompt[]> => {
@@ -86,10 +105,10 @@ export default function App() {
           previousPrompts: usedPromptsRef.current.slice(-35),
         }),
       });
-      const data = (await res.json()) as {
+      const data = await safeReadJson<{
         questions?: QuestionPrompt[];
         error?: string;
-      };
+      }>(res);
       if (!res.ok) {
         throw new Error(data.error || 'Failed to generate sports questions.');
       }
@@ -135,9 +154,11 @@ export default function App() {
       return;
     }
 
+    const runId = activeRunIdRef.current;
     prefetchingRef.current = true;
     fetchQuestionBatch(selectedCategory, 4)
       .then((batch) => {
+        if (activeRunIdRef.current !== runId) return;
         setQuestionQueue((prev) => [...prev, ...batch]);
       })
       .catch((err) => {
@@ -162,6 +183,7 @@ export default function App() {
         playedAt: new Date().toISOString(),
         category: selectedCategory,
         timedMode,
+        paceMode,
         score: finalScore,
         correctCount: finalEntries.filter((e) => e.evaluation.isValid).length,
         totalRounds: finalEntries.length,
@@ -172,16 +194,19 @@ export default function App() {
       const updated = saveRunToLog(run);
       setSavedRuns(updated);
     },
-    [selectedCategory, timedMode]
+    [paceMode, selectedCategory, timedMode]
   );
 
   const startNewRun = useCallback(async () => {
     setErrorMessage(null);
     setActiveTab('play');
 
+    const runId = ++activeRunIdRef.current;
     runSavedRef.current = false;
     timeoutFiredRef.current = false;
     lastWarningSecondRef.current = -1;
+    setIsEvaluating(false);
+    setIsLoadingQuestion(false);
 
     const cached = prewarmedRef.current[selectedCategory];
     if (cached && cached.length > 0) {
@@ -202,7 +227,7 @@ export default function App() {
       setAttemptFeedback(null);
       setRejectedGuesses([]);
       setUntimedAttemptsUsed(0);
-      setTimeRemaining(SHOT_CLOCK_SECONDS);
+      setTimeRemaining(shotClockSeconds);
       setGameState('PLAYING');
       return;
     }
@@ -212,6 +237,7 @@ export default function App() {
 
     try {
       const batch = await fetchQuestionBatch(selectedCategory, 4);
+      if (activeRunIdRef.current !== runId) return;
       const [first, ...rest] = batch;
       if (!first) {
         throw new Error('No questions returned. Check server configuration.');
@@ -231,16 +257,19 @@ export default function App() {
       setAttemptFeedback(null);
       setRejectedGuesses([]);
       setUntimedAttemptsUsed(0);
-      setTimeRemaining(SHOT_CLOCK_SECONDS);
+      setTimeRemaining(shotClockSeconds);
       setGameState('PLAYING');
     } catch (err) {
+      if (activeRunIdRef.current !== runId) return;
       setErrorMessage(
         err instanceof Error ? err.message : 'Could not start endless run.'
       );
     } finally {
-      setIsStarting(false);
+      if (activeRunIdRef.current === runId) {
+        setIsStarting(false);
+      }
     }
-  }, [fetchQuestionBatch, selectedCategory]);
+  }, [fetchQuestionBatch, selectedCategory, shotClockSeconds]);
 
   const minRarity = getMinRarityForRound(roundNumber);
 
@@ -248,6 +277,7 @@ export default function App() {
     async (options?: { timedOut?: boolean; skipped?: boolean }) => {
       if (!currentQuestion || isEvaluating || evaluation) return;
 
+      const runId = activeRunIdRef.current;
       const timedOut = Boolean(options?.timedOut);
       const skipped = Boolean(options?.skipped);
       const submittedText = skipped ? '' : answerInput.trim();
@@ -274,7 +304,7 @@ export default function App() {
           tierExamples: currentQuestion.tierExamples,
         };
         const timeUsed = timedMode
-          ? Number((SHOT_CLOCK_SECONDS - timeRemaining).toFixed(1))
+          ? Number((shotClockSeconds - timeRemaining).toFixed(1))
           : null;
         playStrikeSound(muted);
         setLives((prev) => Math.max(0, prev - 1));
@@ -324,7 +354,8 @@ export default function App() {
           }),
         });
 
-        const data = (await res.json()) as EvaluationResult & { error?: string };
+        const data = await safeReadJson<EvaluationResult & { error?: string }>(res);
+        if (activeRunIdRef.current !== runId) return;
         if (!res.ok) {
           throw new Error(data.error || 'Referee evaluation failed.');
         }
@@ -364,7 +395,7 @@ export default function App() {
         }
 
         const timeUsed = timedMode
-          ? Number((SHOT_CLOCK_SECONDS - timeRemaining).toFixed(1))
+          ? Number((shotClockSeconds - timeRemaining).toFixed(1))
           : null;
 
         if (finalResult.isValid && finalResult.rarity) {
@@ -389,13 +420,16 @@ export default function App() {
         setHistory((prev) => [...prev, entry]);
         setEvaluation(finalResult);
       } catch (err) {
+        if (activeRunIdRef.current !== runId) return;
         setErrorMessage(
           err instanceof Error
             ? err.message
             : 'Unable to reach AI referee. Please try again.'
         );
       } finally {
-        setIsEvaluating(false);
+        if (activeRunIdRef.current === runId) {
+          setIsEvaluating(false);
+        }
       }
     },
     [
@@ -407,6 +441,7 @@ export default function App() {
       muted,
       rejectedGuesses,
       roundNumber,
+      shotClockSeconds,
       streak,
       timeRemaining,
       timedMode,
@@ -428,11 +463,16 @@ export default function App() {
       return;
     }
 
+    const warningCutoff = paceMode === 'bullet' ? 3 : 5;
     const intervalId = window.setInterval(() => {
       setTimeRemaining((prev) => {
         const next = Math.max(0, Number((prev - 0.1).toFixed(1)));
         const wholeSec = Math.ceil(next);
-        if (wholeSec <= 5 && wholeSec >= 1 && wholeSec !== lastWarningSecondRef.current) {
+        if (
+          wholeSec <= warningCutoff &&
+          wholeSec >= 1 &&
+          wholeSec !== lastWarningSecondRef.current
+        ) {
           lastWarningSecondRef.current = wholeSec;
           playTickSound(muted);
         }
@@ -458,8 +498,37 @@ export default function App() {
     isEvaluating,
     isLoadingQuestion,
     muted,
+    paceMode,
     timedMode,
   ]);
+
+  const loadFallbackQuestion = useCallback(async () => {
+    const runId = activeRunIdRef.current;
+    setErrorMessage(null);
+    setIsLoadingQuestion(true);
+    try {
+      const batch = await fetchQuestionBatch(selectedCategory, 4);
+      if (activeRunIdRef.current !== runId) return;
+      const [first, ...rest] = batch;
+      if (!first) {
+        throw new Error('Could not generate the next question.');
+      }
+      timeoutFiredRef.current = false;
+      lastWarningSecondRef.current = -1;
+      setTimeRemaining(shotClockSeconds);
+      setCurrentQuestion(first);
+      setQuestionQueue(rest);
+    } catch (err) {
+      if (activeRunIdRef.current !== runId) return;
+      setErrorMessage(
+        err instanceof Error ? err.message : 'Failed to load next question.'
+      );
+    } finally {
+      if (activeRunIdRef.current === runId) {
+        setIsLoadingQuestion(false);
+      }
+    }
+  }, [fetchQuestionBatch, selectedCategory, shotClockSeconds]);
 
   const handleNextQuestion = useCallback(async () => {
     if (lives <= 0) {
@@ -476,7 +545,7 @@ export default function App() {
     setAnswerInput('');
     timeoutFiredRef.current = false;
     lastWarningSecondRef.current = -1;
-    setTimeRemaining(SHOT_CLOCK_SECONDS);
+    setTimeRemaining(shotClockSeconds);
     setRoundNumber((prev) => prev + 1);
 
     if (questionQueue.length > 0) {
@@ -486,35 +555,24 @@ export default function App() {
       return;
     }
 
-    setIsLoadingQuestion(true);
-    try {
-      const batch = await fetchQuestionBatch(selectedCategory, 4);
-      const [first, ...rest] = batch;
-      if (!first) {
-        throw new Error('Could not generate the next question.');
-      }
-      setCurrentQuestion(first);
-      setQuestionQueue(rest);
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Failed to load next question.'
-      );
-    } finally {
-      setIsLoadingQuestion(false);
-    }
+    setCurrentQuestion(null);
+    await loadFallbackQuestion();
   }, [
     bestStreak,
-    fetchQuestionBatch,
     finalizeAndSaveRun,
     highestRarity,
     history,
     lives,
+    loadFallbackQuestion,
     questionQueue,
     score,
-    selectedCategory,
+    shotClockSeconds,
   ]);
 
   const handleEndRunEarly = useCallback(() => {
+    activeRunIdRef.current += 1;
+    setIsEvaluating(false);
+    setIsLoadingQuestion(false);
     if (history.length > 0) {
       finalizeAndSaveRun(score, bestStreak, highestRarity, history);
       setGameState('GAME_OVER');
@@ -525,6 +583,10 @@ export default function App() {
 
   const handleTopBarNewRun = useCallback(() => {
     if (gameState === 'PLAYING') {
+      activeRunIdRef.current += 1;
+      setIsEvaluating(false);
+      setIsLoadingQuestion(false);
+      setErrorMessage(null);
       setGameState('TITLE_MENU');
       setActiveTab('play');
     } else {
@@ -554,8 +616,8 @@ export default function App() {
           <TitleView
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
-            timedMode={timedMode}
-            onToggleTimedMode={setTimedMode}
+            paceMode={paceMode}
+            onSelectPaceMode={setPaceMode}
             onStartGame={startNewRun}
             isStarting={isStarting}
             errorMessage={errorMessage}
@@ -570,14 +632,16 @@ export default function App() {
             maxLives={MAX_LIVES}
             score={score}
             streak={streak}
+            paceMode={paceMode}
             timedMode={timedMode}
             timeRemaining={timeRemaining}
-            maxTime={SHOT_CLOCK_SECONDS}
+            maxTime={shotClockSeconds}
             answerInput={answerInput}
             onChangeAnswer={setAnswerInput}
             onSubmitAnswer={() => handleEvaluate()}
             onSkipQuestion={() => handleEvaluate({ skipped: true })}
             onNextQuestion={handleNextQuestion}
+            onRetryLoadQuestion={loadFallbackQuestion}
             onEndRunEarly={handleEndRunEarly}
             isEvaluating={isEvaluating}
             isLoadingQuestion={isLoadingQuestion}

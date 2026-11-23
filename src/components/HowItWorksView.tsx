@@ -27,7 +27,7 @@ export function HowItWorksView({ onStartPlay }: HowItWorksViewProps) {
             <p className="mt-2 text-sm leading-relaxed text-[#4B5563]">
               If your guess doesn&apos;t match or is too common for the current tier, the
               round continues—keep typing deeper answers until you lock one in, pass, or
-              the 25s shot clock expires (3 attempts per prompt in Untimed mode).
+              the clock expires (10s Bullet, 25s Shot Clock, or 3 attempts in Untimed).
             </p>
           </div>
 

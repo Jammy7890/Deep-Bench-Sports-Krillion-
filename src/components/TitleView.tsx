@@ -1,8 +1,9 @@
-import { Infinity as InfinityIcon, Play, Timer } from 'lucide-react';
+import { Infinity as InfinityIcon, Play, Timer, Zap } from 'lucide-react';
 import {
   RARITY_CONFIG,
   RARITY_ORDER,
   SPORT_CATEGORIES,
+  type PaceMode,
   type SavedRun,
   type SportCategory,
 } from '../types';
@@ -11,8 +12,8 @@ import { RarityEmblem } from './RarityEmblem';
 interface TitleViewProps {
   selectedCategory: SportCategory;
   onSelectCategory: (cat: SportCategory) => void;
-  timedMode: boolean;
-  onToggleTimedMode: (timed: boolean) => void;
+  paceMode: PaceMode;
+  onSelectPaceMode: (mode: PaceMode) => void;
   onStartGame: () => void;
   isStarting: boolean;
   errorMessage: string | null;
@@ -30,8 +31,8 @@ const ESCALATION_STEPS: Array<{ rounds: string; tier: (typeof RARITY_ORDER)[numb
 export function TitleView({
   selectedCategory,
   onSelectCategory,
-  timedMode,
-  onToggleTimedMode,
+  paceMode,
+  onSelectPaceMode,
   onStartGame,
   isStarting,
   errorMessage,
@@ -55,12 +56,12 @@ export function TitleView({
                 Dig past the obvious play.
               </h1>
               <p className="mt-4 max-w-xl text-base leading-relaxed text-[#4B5563]">
-                Name any valid sports answer before the clock runs out. Non-matching guesses
-                keep the round going so you can keep digging—and every 15 questions, the
-                minimum rarity climbs all the way to Mythic-only.
+                Name any valid sports answer before the clock runs out—in 10s Bullet, 25s
+                Shot Clock, or Untimed mode. Non-matching guesses keep the round going so
+                you can keep digging, and every 15 questions raises the minimum tier.
               </p>
 
-              {/* Organized 3-Rule Breakdown (Whitespace + Hairlines, No Nested Cards) */}
+              {/* Organized 3-Rule Breakdown */}
               <div className="mt-8 grid gap-6 border-t-2 border-[#F1F5F9] pt-6 sm:grid-cols-3">
                 <div>
                   <p className="font-mono-tabular text-xs font-bold text-[#1E8200]">01</p>
@@ -157,33 +158,52 @@ export function TitleView({
               </div>
 
               <div className="mt-6 border-t border-[#E5E7EB] pt-5">
-                <span className="block text-sm font-bold text-[#1F2937]">
-                  2. Choose Pace
-                </span>
-                <div className="mt-2.5 grid grid-cols-2 gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-[#1F2937]">2. Choose Pace</span>
+                  <span className="text-xs font-semibold text-[#4B5563]">
+                    {paceMode === 'bullet'
+                      ? '10s per question'
+                      : paceMode === 'standard'
+                        ? '25s per question'
+                        : 'No clock · 3 tries'}
+                  </span>
+                </div>
+                <div className="mt-2.5 grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => onToggleTimedMode(true)}
-                    className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-xs font-bold transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#58CC02] ${
-                      timedMode
+                    onClick={() => onSelectPaceMode('bullet')}
+                    className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-xl border-2 px-2.5 py-2 text-xs font-bold transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#58CC02] ${
+                      paceMode === 'bullet'
                         ? 'border-[#58CC02] bg-[#EAFCE0] text-[#145300]'
                         : 'border-[#E5E7EB] bg-white text-[#4B5563] hover:border-[#CBD5E1] hover:text-[#1F2937]'
                     }`}
                   >
-                    <Timer className="h-4 w-4" aria-hidden="true" />
-                    25s Shot Clock
+                    <Zap className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    10s Bullet
                   </button>
                   <button
                     type="button"
-                    onClick={() => onToggleTimedMode(false)}
-                    className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-xs font-bold transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#58CC02] ${
-                      !timedMode
+                    onClick={() => onSelectPaceMode('standard')}
+                    className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-xl border-2 px-2.5 py-2 text-xs font-bold transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#58CC02] ${
+                      paceMode === 'standard'
                         ? 'border-[#58CC02] bg-[#EAFCE0] text-[#145300]'
                         : 'border-[#E5E7EB] bg-white text-[#4B5563] hover:border-[#CBD5E1] hover:text-[#1F2937]'
                     }`}
                   >
-                    <InfinityIcon className="h-4 w-4" aria-hidden="true" />
-                    Untimed Chill
+                    <Timer className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    25s Clock
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectPaceMode('untimed')}
+                    className={`flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 rounded-xl border-2 px-2.5 py-2 text-xs font-bold transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#58CC02] ${
+                      paceMode === 'untimed'
+                        ? 'border-[#58CC02] bg-[#EAFCE0] text-[#145300]'
+                        : 'border-[#E5E7EB] bg-white text-[#4B5563] hover:border-[#CBD5E1] hover:text-[#1F2937]'
+                    }`}
+                  >
+                    <InfinityIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    Untimed
                   </button>
                 </div>
               </div>

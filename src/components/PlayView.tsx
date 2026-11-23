@@ -5,15 +5,18 @@ import {
   Flame,
   Heart,
   Loader2,
+  RotateCcw,
   SkipForward,
   Volume2,
   VolumeX,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import {
   getNextEscalationInfo,
   RARITY_CONFIG,
   type EvaluationResult,
+  type PaceMode,
   type QuestionPrompt,
   type RarityTier,
 } from '../types';
@@ -33,6 +36,7 @@ interface PlayViewProps {
   maxLives: number;
   score: number;
   streak: number;
+  paceMode: PaceMode;
   timedMode: boolean;
   timeRemaining: number;
   maxTime: number;
@@ -41,6 +45,7 @@ interface PlayViewProps {
   onSubmitAnswer: () => void;
   onSkipQuestion: () => void;
   onNextQuestion: () => void;
+  onRetryLoadQuestion: () => void;
   onEndRunEarly: () => void;
   isEvaluating: boolean;
   isLoadingQuestion: boolean;
@@ -61,6 +66,7 @@ export function PlayView({
   maxLives,
   score,
   streak,
+  paceMode,
   timedMode,
   timeRemaining,
   maxTime,
@@ -69,6 +75,7 @@ export function PlayView({
   onSubmitAnswer,
   onSkipQuestion,
   onNextQuestion,
+  onRetryLoadQuestion,
   onEndRunEarly,
   isEvaluating,
   isLoadingQuestion,
@@ -103,14 +110,14 @@ export function PlayView({
   };
 
   const progressRatio = timedMode ? Math.max(0, Math.min(1, timeRemaining / maxTime)) : 1;
-  const isUrgent = timedMode && timeRemaining <= 5 && !evaluation;
+  const urgentCutoff = paceMode === 'bullet' ? 3 : 5;
+  const isUrgent = timedMode && timeRemaining <= urgentCutoff && !evaluation;
 
   const minMeta = RARITY_CONFIG[minRarity];
   const nextEscalation = getNextEscalationInfo(roundNumber);
   const justEscalated =
     roundNumber === 16 || roundNumber === 31 || roundNumber === 46 || roundNumber === 61;
 
-  // Progress within current 15-round block (1..15)
   const blockProgress = nextEscalation
     ? ((15 - nextEscalation.roundsUntil + 1) / 15) * 100
     : 100;
@@ -119,12 +126,12 @@ export function PlayView({
   const wasNormalized =
     evaluation?.isValid &&
     (evaluation.matchType === 'ALIAS_SWITCH' || evaluation.matchType === 'TYPO_CORRECTED');
+  const tierExamples = evaluation?.tierExamples ?? [];
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8 md:py-10">
       {/* Organized Duolingo-Style Top Vitals & Tier Progress Row */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        {/* Escalation Progress Bar */}
         <div className="flex min-w-[220px] flex-1 items-center gap-3">
           <div className="h-3.5 flex-1 overflow-hidden rounded-full bg-[#E5E7EB]">
             <div
@@ -207,10 +214,36 @@ export function PlayView({
 
       {/* Main Focused Prompt Card */}
       <div className="mt-5 rounded-2xl border-2 border-[#E5E7EB] bg-white p-6 md:p-8">
-        {isLoadingQuestion || !question ? (
+        {isLoadingQuestion ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-[#4B5563]">
             <Loader2 className="h-7 w-7 animate-spin text-[#58CC02]" aria-hidden="true" />
             <p className="text-sm font-semibold">Generating next sports prompt…</p>
+          </div>
+        ) : !question ? (
+          <div className="flex min-h-[240px] flex-col items-center justify-center gap-4 text-center">
+            <div
+              role="alert"
+              className="max-w-md rounded-xl border-2 border-[#FDA4AF] bg-[#FFF1F2] px-4 py-3 text-sm font-medium text-[#9F1239]"
+            >
+              {errorMessage || 'Could not load the next sports prompt.'}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={onRetryLoadQuestion}
+                className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border-b-4 border-[#135A00] bg-[#1E8200] px-5 py-2 text-sm font-bold text-white transition-all hover:bg-[#239300] active:translate-y-0.5 active:border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#58CC02]"
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                Retry Next Question
+              </button>
+              <button
+                type="button"
+                onClick={onEndRunEarly}
+                className="min-h-[44px] cursor-pointer rounded-xl border-2 border-[#E5E7EB] bg-white px-4 py-2 text-sm font-bold text-[#374151] transition-colors hover:border-[#CBD5E1] hover:bg-[#F9FAFB]"
+              >
+                End Run
+              </button>
+            </div>
           </div>
         ) : (
           <div>
@@ -228,6 +261,17 @@ export function PlayView({
                   ·
                 </span>
                 <span>{question.subCategory}</span>
+                {paceMode === 'bullet' && (
+                  <>
+                    <span aria-hidden="true" className="text-[#CBD5E1]">
+                      ·
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[#B45309]">
+                      <Zap className="h-3 w-3" aria-hidden="true" />
+                      10s Bullet
+                    </span>
+                  </>
+                )}
               </div>
 
               <div className="flex items-center gap-2 text-xs">
@@ -243,7 +287,9 @@ export function PlayView({
             {timedMode && (
               <div className="mt-4">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#4B5563]">Shot Clock</span>
+                  <span className="font-semibold text-[#4B5563]">
+                    {paceMode === 'bullet' ? 'Bullet Clock (10s)' : 'Shot Clock'}
+                  </span>
                   <span
                     className={`font-mono-tabular font-bold ${
                       isUrgent ? 'text-[#DC2626]' : 'text-[#1F2937]'
@@ -505,13 +551,13 @@ export function PlayView({
                 </div>
 
                 {/* Scouting Report: All 5 Rarity Examples */}
-                {evaluation.tierExamples.length > 0 && (
+                {tierExamples.length > 0 && (
                   <div className="border-t-2 border-[#F1F5F9] pt-5">
                     <h3 className="text-xs font-bold tracking-wide text-[#4B5563]">
                       Scouting Report · Valid Picks Across Tiers
                     </h3>
                     <div className="mt-3 divide-y divide-[#F1F5F9]">
-                      {evaluation.tierExamples.map((example, idx) => {
+                      {tierExamples.map((example, idx) => {
                         const meta = RARITY_CONFIG[example.tier];
                         const qualifies = meta.rank >= minMeta.rank;
                         const isYourPick =
