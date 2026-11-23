@@ -247,8 +247,8 @@ function formatApiError(err: unknown): { status: number; message: string } {
   }
 
   if (
+    parsedCode === 401 ||
     parsedCode === 403 ||
-    parsedCode === 400 ||
     /API_KEY_INVALID|PERMISSION_DENIED/i.test(rawMessage)
   ) {
     return {
